@@ -50,6 +50,11 @@ def test_template_file_crud_roundtrip(tmp_path):
         "name": "Scribe",
         "model": "openai/gpt-4o-mini",
         "instructions": "Write summaries",
+        "model_params": {
+            "base_url": "https://example-openai-proxy.local/v1",
+            "temperature": 0.3,
+            "api_key": "sk-test-abc123",
+        },
     }
     write_resp = manager.write_template_file("agents/scribe.md", agent_payload)
     assert write_resp["success"] is True
@@ -58,6 +63,8 @@ def test_template_file_crud_roundtrip(tmp_path):
     read_agent = manager.read_template_file("agents/scribe.md")
     assert read_agent["success"] is True
     assert read_agent["content"]["name"] == "Scribe"
+    assert read_agent["content"]["model_params"]["temperature"] == 0.3
+    assert read_agent["content"]["model_params"]["base_url"]
 
     team_payload = TeamConfig(
         id="room1",
@@ -88,3 +95,19 @@ def test_single_cell_team_includes_fm_router(tmp_path):
     assert team is not None
     agent_ids = [a.id for a in team.agents]
     assert "fm_router" in agent_ids
+
+
+def test_old_agent_template_without_model_params_is_compatible(tmp_path):
+    manager = _make_manager(tmp_path)
+    payload = {
+        "id": "legacy",
+        "name": "Legacy",
+        "model": "high",
+        "instructions": "old format",
+    }
+    write_resp = manager.write_template_file("agents/legacy.md", payload)
+    assert write_resp["success"] is True
+
+    read_resp = manager.read_template_file("agents/legacy.md")
+    assert read_resp["success"] is True
+    assert read_resp["content"].get("model_params", {}) == {}

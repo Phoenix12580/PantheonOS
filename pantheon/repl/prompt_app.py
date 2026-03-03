@@ -187,6 +187,7 @@ class ReplCompleter(Completer):
         # Agent/Team
         ("/agents", "Show agents in team"),
         ("/agent", "Switch to specific agent"),
+        ("/agent config", "Edit agent LLM config"),
         ("/team", "Switch team: /team list | /team <id>"),
         ("/model", "Show/set model: /model [name|tag]"),
         ("/keys", "Show/set API keys: /keys [number|name] [key]"),

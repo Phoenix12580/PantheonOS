@@ -5,7 +5,7 @@ Unified data structures for agents and teams.
 """
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set
 
 
 @dataclass
@@ -24,6 +24,7 @@ class AgentConfig:
     toolsets: List[str] = field(default_factory=list)
     mcp_servers: List[str] = field(default_factory=list)
     tags: List[str] = field(default_factory=list)
+    model_params: Dict[str, Any] = field(default_factory=dict)
     source_path: Optional[str] = None
 
     def to_dict(self) -> dict:
@@ -38,6 +39,7 @@ class AgentConfig:
             "toolsets": self.toolsets,
             "mcp_servers": self.mcp_servers,
             "tags": self.tags,
+            "model_params": self.model_params,
             "source_path": self.source_path,
         }
 
@@ -54,12 +56,14 @@ class AgentConfig:
             toolsets=data.get("toolsets", []),
             mcp_servers=data.get("mcp_servers", []),
             tags=data.get("tags", []),
+            model_params=dict(data.get("model_params", {}) or {}),
             source_path=data.get("source_path"),
         )
 
     def to_creation_payload(self) -> dict:
         """Payload dict for create_agent helper."""
-        return {
+        payload = {
+            "id": self.id,
             "name": self.name,
             "description": self.description,
             "instructions": self.instructions,
@@ -68,6 +72,11 @@ class AgentConfig:
             "toolsets": list(self.toolsets or []),
             "mcp_servers": list(self.mcp_servers or []),
         }
+        if self.model_params:
+            payload["model_params"] = {
+                k: v for k, v in self.model_params.items() if v is not None
+            }
+        return payload
 
 
 @dataclass

@@ -1,6 +1,7 @@
 import asyncio
 import dataclasses
 import io
+from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
 from typing import Callable
@@ -1620,6 +1621,151 @@ class ChatRoom(ToolSet):
         except Exception as e:
             logger.error(f"Error setting agent model: {e}")
             return {"success": False, "message": str(e)}
+
+    @tool
+    async def set_agent_llm_config(
+        self,
+        chat_id: str,
+        agent_name: str,
+        model: str,
+        base_url: str | None = None,
+        api_key: str | None = None,
+        temperature: float | None = None,
+        save_to_template: bool = True,
+        validate: bool = True,
+    ) -> dict:
+        """Set model and model_params for an agent in a chat."""
+        try:
+            if temperature is not None and not (0.0 <= float(temperature) <= 2.0):
+                return {"success": False, "message": "temperature must be in range [0,2]"}
+
+            model_result = await self.set_agent_model(
+                chat_id=chat_id,
+                agent_name=agent_name,
+                model=model,
+                validate=validate,
+            )
+            if not model_result.get("success"):
+                return model_result
+
+            team = await self.get_team_for_chat(chat_id)
+            target_agent = next((a for a in team.team_agents if a.name == agent_name), None)
+            if target_agent is None:
+                return {
+                    "success": False,
+                    "message": f"Agent '{agent_name}' not found in chat '{chat_id}'",
+                }
+
+            params = dict(getattr(target_agent, "model_params", {}) or {})
+            if base_url is not None:
+                if base_url:
+                    params["base_url"] = base_url
+                else:
+                    params.pop("base_url", None)
+            if api_key is not None:
+                if api_key:
+                    params["api_key"] = api_key
+                else:
+                    params.pop("api_key", None)
+            if temperature is not None:
+                params["temperature"] = float(temperature)
+
+            target_agent.model_params = {k: v for k, v in params.items() if v is not None}
+
+            if save_to_template:
+                source_path = getattr(team, "_source_path", None)
+                if source_path:
+                    template_path = Path(source_path)
+                    if template_path.exists():
+                        try:
+                            file_manager = self.template_manager.file_manager
+                            original_team = file_manager._read_team_from_path(template_path)
+                            for agent_cfg in original_team.agents:
+                                if agent_cfg.name == agent_name or agent_cfg.id == agent_name:
+                                    agent_cfg.model = model
+                                    agent_cfg.model_params = dict(target_agent.model_params)
+                                    break
+                            file_manager._write_team_file(original_team, template_path, overwrite=True)
+                        except Exception as e:
+                            logger.warning(f"Failed to persist llm config to template file: {e}")
+
+            memory = await run_func(self.memory_manager.get_memory, chat_id)
+            team_template = memory.extra_data.get("team_template", {})
+            for agent_config in team_template.get("agents", []):
+                if agent_config.get("name") == agent_name:
+                    agent_config["model"] = model
+                    agent_config["model_params"] = dict(target_agent.model_params)
+                    break
+            memory.extra_data["team_template"] = team_template
+            memory.mark_dirty()
+
+            return {
+                "success": True,
+                "agent": agent_name,
+                "model": model,
+                "model_params": self._sanitize_model_params(target_agent.model_params),
+                "effective_api_key": self._mask_secret(
+                    self._resolve_effective_agent_api_key(target_agent.model_params)
+                ),
+                "effective_api_key_source": self._resolve_agent_api_key_source(target_agent.model_params),
+                "message": "Agent LLM config updated. Existing chats may need new chat or team reload to take full effect.",
+            }
+        except Exception as e:
+            logger.error(f"Error setting agent llm config: {e}")
+            return {"success": False, "message": str(e)}
+
+    @tool
+    async def get_agent_llm_config(self, chat_id: str, agent_name: str) -> dict:
+        """Get current/effective model params for an agent."""
+        try:
+            team = await self.get_team_for_chat(chat_id)
+            target_agent = next((a for a in team.team_agents if a.name == agent_name), None)
+            if target_agent is None:
+                return {
+                    "success": False,
+                    "message": f"Agent '{agent_name}' not found in chat '{chat_id}'",
+                }
+
+            model_params = dict(getattr(target_agent, "model_params", {}) or {})
+            return {
+                "success": True,
+                "agent": agent_name,
+                "model": (target_agent.models[0] if getattr(target_agent, "models", None) else ""),
+                "model_params": self._sanitize_model_params(model_params),
+                "effective_api_key": self._mask_secret(self._resolve_effective_agent_api_key(model_params)),
+                "effective_api_key_source": self._resolve_agent_api_key_source(model_params),
+            }
+        except Exception as e:
+            logger.error(f"Error getting agent llm config: {e}")
+            return {"success": False, "message": str(e)}
+
+    def _resolve_effective_agent_api_key(self, model_params: dict | None) -> str | None:
+        """Resolve by priority env/env_file then template-stored key."""
+        settings_key = get_settings().get_api_key("OPENAI_API_KEY")
+        if settings_key:
+            return settings_key
+        return (model_params or {}).get("api_key")
+
+    def _resolve_agent_api_key_source(self, model_params: dict | None) -> str:
+        """Return source label for effective api key."""
+        if get_settings().get_api_key("OPENAI_API_KEY"):
+            return "environment_or_env_file"
+        if (model_params or {}).get("api_key"):
+            return "template"
+        return "none"
+
+    def _mask_secret(self, value: str | None) -> str:
+        if not value:
+            return ""
+        if len(value) <= 5:
+            return "*" * len(value)
+        return f"{value[:3]}{'*' * (len(value) - 5)}{value[-2:]}"
+
+    def _sanitize_model_params(self, model_params: dict | None) -> dict:
+        sanitized = deepcopy(model_params or {})
+        if sanitized.get("api_key"):
+            sanitized["api_key"] = self._mask_secret(sanitized["api_key"])
+        return sanitized
 
 
     @tool

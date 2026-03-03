@@ -180,6 +180,15 @@ def format_token_count(count: int) -> str:
     return str(count)
 
 
+def mask_secret(value: str | None) -> str:
+    """Mask secret text for safe display."""
+    if not value:
+        return ""
+    if len(value) <= 5:
+        return "*" * len(value)
+    return f"{value[:3]}{'*' * (len(value) - 5)}{value[-2:]}"
+
+
 
 async def get_detailed_token_stats(chatroom, chat_id, team, fallback: dict) -> dict:
     """Gather detailed token statistics (async) including tools and system prompt."""

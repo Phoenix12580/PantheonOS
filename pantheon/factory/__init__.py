@@ -15,6 +15,7 @@ async def create_agent(
     toolsets: list[str] | None = None,
     mcp_servers: list[str] | None = None,
     description: str | None = None,
+    model_params: dict | None = None,
     enable_mcp: bool = True,
     **kwargs,
 ) -> Agent:
@@ -36,6 +37,7 @@ async def create_agent(
         model=model,
         icon=icon,
         description=description,
+        model_params=model_params,
     )
     agent.not_loaded_toolsets = []
     toolsets_added = []

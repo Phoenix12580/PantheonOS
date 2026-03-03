@@ -569,6 +569,9 @@ class ReplUI:
             "[dim][bold purple]/agent   [/bold purple][/dim] - Switch to agent (by name or number)"
         )
         self.console.print(
+            "[dim][bold purple]/agent config[/bold purple][/dim] - Edit agent LLM params: /agent config <name|index>"
+        )
+        self.console.print(
             "[dim][bold purple]/team    [/bold purple][/dim] - Switch team: /team list | /team <id>"
         )
         self.console.print(

@@ -40,7 +40,13 @@ from .handlers.base import CommandHandler
 from .handlers.template_handler import TemplateHandler, load_template
 from .handlers.builtin.bash import BashCommandHandler
 from .prompt_app import PantheonInputApp, ReplCompleter
-from .utils import get_animation_frames, get_separator, format_tool_name, format_relative_time
+from .utils import (
+    get_animation_frames,
+    get_separator,
+    format_tool_name,
+    format_relative_time,
+    mask_secret,
+)
 
 
 class Repl(ReplUI):
@@ -856,7 +862,14 @@ class Repl(ReplUI):
         # Agent switch command: /agent <name> or /agent <number>
         elif cmd_lower.startswith("/agent "):
             agent_arg = cmd[7:].strip()
-            await self._handle_switch_agent(agent_arg)
+            if agent_arg.startswith("config"):
+                await self._handle_agent_config_command(agent_arg[6:].strip())
+            else:
+                await self._handle_switch_agent(agent_arg)
+            return
+
+        elif cmd_lower == "/agent":
+            self.console.print("[dim]Usage: /agent <name|index> | /agent config <name|index>[/dim]")
             return
 
         # Model command: /model [model_name_or_tag]
@@ -1812,6 +1825,99 @@ class Repl(ReplUI):
             self.console.print(f"[green]✅ Switched to:[/green] [bold cyan]{target_agent_name}[/bold cyan]")
         else:
             self.console.print(f"[red]Failed to switch agent: {result.get('message', 'Unknown error')}[/red]")
+
+    def _resolve_agent_name(self, agent_arg: str) -> str | None:
+        """Resolve agent selector (index or name) to concrete name."""
+        if not self._team or not self._team.agents:
+            return None
+        names = list(self._team.agents.keys())
+        try:
+            idx = int(agent_arg)
+            if 1 <= idx <= len(names):
+                return names[idx - 1]
+            return None
+        except ValueError:
+            value = agent_arg.lower()
+            for name in names:
+                if name.lower() == value or name.lower().startswith(value):
+                    return name
+        return None
+
+    async def _handle_agent_config_command(self, args: str):
+        """Interactive LLM config editor for one agent."""
+        if not self._team or not self._team.agents:
+            self.console.print("[red]No team loaded[/red]")
+            return
+        if not self._chat_id:
+            self.console.print("[red]No active chat session[/red]")
+            return
+        if not args:
+            self.console.print("[dim]Usage: /agent config <name|index>[/dim]")
+            await self._handle_show_agents()
+            return
+
+        agent_name = self._resolve_agent_name(args)
+        if not agent_name:
+            self.console.print(f"[red]Agent not found: {args}[/red]")
+            return
+
+        cfg_res = await self._chatroom.get_agent_llm_config(self._chat_id, agent_name)
+        if not cfg_res.get("success"):
+            self.console.print(f"[red]Failed to load agent config: {cfg_res.get('message')}[/red]")
+            return
+
+        params = cfg_res.get("model_params", {})
+        current_model = cfg_res.get("model", "")
+        current_base_url = params.get("base_url", "")
+        current_api_key = params.get("api_key", "")
+        current_temperature = params.get("temperature")
+
+        self.console.print(f"[bold]Configuring agent:[/bold] [cyan]{agent_name}[/cyan]")
+        self.console.print(f"[dim]Current model:[/dim] {current_model}")
+        self.console.print(f"[dim]Current base_url:[/dim] {current_base_url or '-'}")
+        self.console.print(f"[dim]Stored api_key:[/dim] {mask_secret(current_api_key) or '-'}")
+        self.console.print(
+            f"[dim]Effective api_key:[/dim] {cfg_res.get('effective_api_key') or '-'} "
+            f"[dim]({cfg_res.get('effective_api_key_source', 'none')})[/dim]"
+        )
+        self.console.print(f"[dim]Current temperature:[/dim] {current_temperature if current_temperature is not None else '-'}")
+
+        new_model = input(f"model [{current_model}]: ").strip() or current_model
+        new_base_url = input(f"base_url [{current_base_url}]: ").strip()
+        new_api_key = input("api_key (leave empty to keep current): ").strip()
+        temp_raw = input(
+            f"temperature [{'' if current_temperature is None else current_temperature}] (0-2): "
+        ).strip()
+
+        temperature = None
+        if temp_raw:
+            try:
+                temperature = float(temp_raw)
+            except ValueError:
+                self.console.print("[red]temperature must be a float[/red]")
+                return
+        elif current_temperature is not None:
+            temperature = float(current_temperature)
+
+        base_url_for_save = new_base_url if new_base_url else None
+        api_key_for_save = new_api_key if new_api_key else None
+
+        result = await self._chatroom.set_agent_llm_config(
+            chat_id=self._chat_id,
+            agent_name=agent_name,
+            model=new_model,
+            base_url=base_url_for_save,
+            api_key=api_key_for_save,
+            temperature=temperature,
+            save_to_template=True,
+        )
+        if result.get("success"):
+            self.console.print("[green]✅ Agent LLM config saved to template[/green]")
+            self.console.print(
+                f"[dim]New chats/team reload recommended for full effect on existing sessions.[/dim]"
+            )
+        else:
+            self.console.print(f"[red]Failed to save config: {result.get('message', 'Unknown error')}[/red]")
 
     def _handle_keys_command(self, args: str):
         """Handle /keys command - show or set LLM provider API keys.

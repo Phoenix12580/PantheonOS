@@ -535,6 +535,7 @@ class UnifiedMarkdownParser:
             toolsets=list(metadata.get("toolsets", []) or []),
             mcp_servers=list(metadata.get("mcp_servers", []) or []),
             tags=list(metadata.get("tags", []) or []),
+            model_params=dict(metadata.get("model_params", {}) or {}),
             source_path=source_path,
         )
 
@@ -658,6 +659,7 @@ class UnifiedMarkdownParser:
                         toolsets=list(agent_metadata.get("toolsets", []) or []),
                         mcp_servers=list(agent_metadata.get("mcp_servers", []) or []),
                         tags=list(agent_metadata.get("tags", []) or []),
+                        model_params=dict(agent_metadata.get("model_params", {}) or {}),
                         source_path=source_path,
                     )
                 )
@@ -714,6 +716,10 @@ class UnifiedMarkdownParser:
             metadata["mcp_servers"] = agent.mcp_servers
         if agent.tags:
             metadata["tags"] = agent.tags
+        if agent.model_params:
+            metadata["model_params"] = {
+                k: v for k, v in agent.model_params.items() if v is not None
+            }
 
         fm_text = yaml.dump(
             metadata,
@@ -767,6 +773,10 @@ class UnifiedMarkdownParser:
                     agent_meta["mcp_servers"] = agent.mcp_servers
                 if agent.tags:
                     agent_meta["tags"] = agent.tags
+                if agent.model_params:
+                    agent_meta["model_params"] = {
+                        k: v for k, v in agent.model_params.items() if v is not None
+                    }
                 metadata[agent.id] = agent_meta
 
         fm_text = yaml.dump(
