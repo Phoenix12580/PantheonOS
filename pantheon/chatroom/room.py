@@ -1516,6 +1516,7 @@ class ChatRoom(ToolSet):
         chat_id: str,
         agent_name: str,
         model: str,
+        save_to_template: bool = True,
         validate: bool = True,
     ) -> dict:
         """Set the model for an agent in a specific chat.
@@ -1524,6 +1525,7 @@ class ChatRoom(ToolSet):
             chat_id: The chat ID.
             agent_name: The name of the agent to update.
             model: Model name (e.g., "openai/gpt-4o") or tag (e.g., "high", "normal,vision").
+            save_to_template: If True, persist model updates back to the source template file.
             validate: If True, verify that the provider has a valid API key.
 
         Returns:
@@ -1567,7 +1569,7 @@ class ChatRoom(ToolSet):
 
             # 5. Persist to template file (if source_path exists)
             source_path = getattr(team, "_source_path", None)
-            if source_path:
+            if save_to_template and source_path:
                 from pathlib import Path
 
                 template_path = Path(source_path)
@@ -1643,6 +1645,7 @@ class ChatRoom(ToolSet):
                 chat_id=chat_id,
                 agent_name=agent_name,
                 model=model,
+                save_to_template=save_to_template,
                 validate=validate,
             )
             if not model_result.get("success"):
